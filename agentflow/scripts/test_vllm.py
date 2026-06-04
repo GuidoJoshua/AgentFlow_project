@@ -4,8 +4,8 @@ def test_text_generation():
     print("--- Testing Text Generation ---")
     try:
         llm = ChatVLLM(
-            model_string="YOUR_LOCAL_MODEL_NAME",
-            base_url="http://localhost:YOUR_PORT/v1/",
+            model_string="Qwen/Qwen2.5-7B-Instruct",
+            base_url="http://localhost:8001/v1/",
             use_cache=False,
             system_prompt="You are a helpful AI assistant."
         )

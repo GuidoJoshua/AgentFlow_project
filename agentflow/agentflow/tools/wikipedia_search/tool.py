@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import wikipedia
 from pydantic import BaseModel
@@ -39,6 +40,7 @@ class Select_Relevant_Queries(BaseModel):
     matched_query_ids: list[int]
 
 def select_relevant_queries(original_query: str, query_candidates: list[str], llm_engine):
+    original_candidates = query_candidates
 
     query_candidates = "\n".join([f"{i}. {query}" for i, query in enumerate(query_candidates)])
 
@@ -104,17 +106,54 @@ Output:
         prompt = prompt.format(original_query=original_query, query_candidates=query_candidates)     
 
         response = llm_engine.generate(prompt, response_format=Select_Relevant_Queries)
-        # print(response)
 
-        matched_queries = response.matched_queries
-        matched_query_ids = [int(i) for i in response.matched_query_ids]
-        return matched_queries, matched_query_ids
+        if isinstance(response, Select_Relevant_Queries):
+            matched_queries = response.matched_queries
+            matched_query_ids = [int(i) for i in response.matched_query_ids]
+            return matched_queries, matched_query_ids
+
+        if hasattr(response, "matched_queries") and hasattr(response, "matched_query_ids"):
+            matched_queries = list(response.matched_queries)
+            matched_query_ids = [int(i) for i in response.matched_query_ids]
+            return matched_queries, matched_query_ids
+
+        if isinstance(response, str):
+            ids_match = re.search(r"Matched Query IDs:\s*\[([^\]]+)\]", response, re.IGNORECASE)
+            query_match = re.search(
+                r"Matched Queries:\s*(.*?)\s*-+\s*Matched Query IDs:",
+                response,
+                re.IGNORECASE | re.DOTALL,
+            )
+
+            matched_query_ids = [int(i) for i in re.findall(r"\d+", ids_match.group(1))] if ids_match else []
+            matched_queries = []
+            if query_match:
+                raw_queries = query_match.group(1).strip().strip("[]")
+                matched_queries = [
+                    query.strip().strip("`'\"")
+                    for query in raw_queries.split(",")
+                    if query.strip()
+                ]
+
+            if matched_query_ids and not matched_queries:
+                matched_queries = [
+                    original_candidates[i]
+                    for i in matched_query_ids
+                    if 0 <= i < len(original_candidates)
+                ]
+
+            if matched_query_ids:
+                return matched_queries, matched_query_ids
+
+        return [], []
     except Exception as e:
         print(f"Error selecting relevant queries: {e}")
         return [], []
 
 class Wikipedia_Search_Tool(BaseTool):
-    def __init__(self, model_string="gpt-4o-mini"):
+    require_llm_engine = True
+
+    def __init__(self, model_string="gpt-4o-mini", base_url=None):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description="A tool that searches Wikipedia and returns relevant pages with their page titles, URLs, abstract, and retrieved information based on a given query.",
@@ -142,7 +181,16 @@ class Wikipedia_Search_Tool(BaseTool):
                 "best_practice": BEST_PRACTICE
             }
         )
-        self.llm_engine = create_llm_engine(model_string=model_string, temperature=0.0, top_p=1.0, frequency_penalty=0.0, presence_penalty=0.0)
+        self.model_string = model_string
+        self.base_url = base_url
+        self.llm_engine = create_llm_engine(
+            model_string=model_string,
+            base_url=base_url,
+            temperature=0.0,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0,
+        )
 
     def _get_wikipedia_url(self, query):
         """
@@ -208,11 +256,6 @@ class Wikipedia_Search_Tool(BaseTool):
         Returns:
             dict: A dictionary containing the search results and all matching pages with their content.
         """
-        # Check if OpenAI API key is set
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            sys.exit("[Wikipedia RAG Search] Error: OPENAI_API_KEY environment variable is not set.")
-            
         # First get relevant queries from the search results
         search_results = self.search_wikipedia(query)
 
@@ -223,14 +266,23 @@ class Wikipedia_Search_Tool(BaseTool):
 
         # Select the most relevant pages
         matched_queries, matched_query_ids = select_relevant_queries(query, titles, self.llm_engine)
+        if not matched_query_ids:
+            matched_query_ids = list(range(min(3, len(search_results))))
         
         # Only process the most relevant pages
         pages_data = [search_results[i] for i in matched_query_ids]
         other_pages = [search_results[i] for i in range(len(search_results)) if i not in matched_query_ids]
 
+        if os.getenv("OPENAI_API_KEY") is None:
+            return {
+                "query": query,
+                "relevant_pages (to the query)": pages_data,
+                "other_pages (may be irrelevant to the query)": other_pages
+            }
+
         # For each relevant page, get detailed information using Web RAG
         try:
-            web_rag_tool = Web_Search_Tool(model_string=self.model_string)
+            web_rag_tool = Web_Search_Tool(model_string=self.model_string, base_url=self.base_url)
         except Exception as e:
             print(f"Error creating Web RAG tool: {e}")
             return {"query": query, "relevant_pages": [], "other_pages (may be irrelevant to the query)": search_results}

@@ -20,21 +20,21 @@ TOOL_NAME = "Ground_Google_Search_Tool"
 LIMITATIONS = """
 1. This tool is only suitable for general information search.
 2. This tool contains less domain specific information.
-3. This tools is not suitable for searching and analyzing videos at YouTube or other video platforms.
+3. This tools is not suitable for searching and analyzing videos on YouTube or other video platforms.
 """
 
 BEST_PRACTICES = """
 1. Choose this tool when you want to search general information about a topic.
-2. Choose this tool for question type of query, such as "What is the capital of France?" or "What is the capital of France?"
+2. Choose this tool for question type of query, such as "What is the capital of France?" or "Who invented the telephone?".
 3. The tool will return a summarized information.
-4. This tool is more suiable for defination, world knowledge, and general information search.
+4. This tool is more suitable for definition, world knowledge, and general information search.
 """
 
 class Google_Search_Tool(BaseTool):
-    def __init__(self, model_string="gemini-2.5-flash"):
+    def __init__(self, model_string="gemini-3.1-flash-lite"):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="A web search tool powered by Google's Gemini AI that provides real-time information from the internet with citation support.",
+            tool_description="A web search tool powered by Google Search that provides real-time information from the internet with citation support.",
             tool_version="1.0.0",
             input_types={
                 "query": "str - The search query to find information on the web.",
@@ -61,6 +61,7 @@ class Google_Search_Tool(BaseTool):
             }
         )
         self.max_retries = 5
+        self.model_string = model_string
         self.search_model = model_string
 
         try:

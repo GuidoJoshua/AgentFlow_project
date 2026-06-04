@@ -332,8 +332,8 @@ def parse_arguments():
         help="Comma-separated list of required outputs (base,final,direct)"
     )
     parser.add_argument("--enabled_tools", default="Generalist_Solution_Generator_Tool", help="List of enabled tools.")
-    parser.add_argument("--tool_engine", default="Default", help="List of tool engines corresponding to enabled_tools, separated by commas.")
-    parser.add_argument("--model_engine", default="trainable,gpt-4o,gpt-4o,gpt-4o", help="Model engine configuration for [planner_main, planner_fixed, verifier, executor], separated by commas. Use 'trainable' for components that should use llm_engine_name.")
+    parser.add_argument("--tool_engine", default="Default", help="List of tool engines corresponding to enabled_tools, separated by commas. Use 'Default' for the tool's original default model, 'self' to reuse llm_engine_name, 'fixed' to reuse planner_fixed, or '<model>@<base_url>' for a tool-specific local server.")
+    parser.add_argument("--model_engine", default="trainable,gpt-4o,gpt-4o,gpt-4o", help="Model engine configuration for [planner_main, planner_fixed, verifier, executor], separated by commas. Use 'trainable' to reuse llm_engine_name and 'fixed' in verifier/executor slots to reuse planner_fixed.")
     parser.add_argument("--index", type=int, default=0, help="Index of the problem in the benchmark file.")
     parser.add_argument("--root_cache_dir", default="solver_cache", help="Path to solver cache directory.")
     parser.add_argument("--output_json_dir", default="results", help="Path to output JSON directory.")
@@ -343,15 +343,26 @@ def parse_arguments():
     parser.add_argument("--temperature", type=float, default=0.7, help="Enable verbose output.")
     parser.add_argument("--vllm_config_path", type=str, default=None, help="Path to VLLM configuration file.")
     parser.add_argument("--base_url", type=str, default=None, help="Base URL for the LLM API.")
+    parser.add_argument("--fixed_base_url", type=str, default=os.getenv("AGENTFLOW_FIXED_BASE_URL"), help="Base URL for the fixed local LLM API.")
     parser.add_argument("--check_model", type=bool, default=True, help="Check if the model is available.")
     return parser.parse_args()
 
 
 def main(args):
+    def default_vllm_base_url(engine_name: str, base_url: str):
+        if engine_name and base_url and engine_name.startswith("vllm-"):
+            return base_url
+        return None
+
+    def parse_csv_arg(raw_value: str):
+        if not raw_value:
+            return []
+        return [item.strip() for item in raw_value.split(",") if item.strip()]
+
     # Initialize Tools
-    enabled_tools = args.enabled_tools.split(",") if args.enabled_tools else []
-    tool_engine = args.tool_engine.split(",") if args.tool_engine else ["Default"]
-    model_engine = args.model_engine.split(",") if args.model_engine else ["trainable", "gpt-4o", "gpt-4o", "gpt-4o"]
+    enabled_tools = parse_csv_arg(args.enabled_tools)
+    tool_engine = parse_csv_arg(args.tool_engine) if args.tool_engine else ["Default"]
+    model_engine = parse_csv_arg(args.model_engine) if args.model_engine else ["trainable", "gpt-4o", "gpt-4o", "gpt-4o"]
     print(args.base_url, args.llm_engine_name)
 
     if len(tool_engine) < len(enabled_tools):
@@ -364,11 +375,19 @@ def main(args):
 
     # Parse model_engine configuration
     # Format: [planner_main, planner_fixed, verifier, executor]
-    # "trainable" means use args.llm_engine_name (the trainable model)
+    # "trainable" means use args.llm_engine_name, "fixed" means reuse planner_fixed
     planner_main_engine = args.llm_engine_name if model_engine[0] == "trainable" else model_engine[0]
     planner_fixed_engine = args.llm_engine_name if model_engine[1] == "trainable" else model_engine[1]
-    verifier_engine = args.llm_engine_name if model_engine[2] == "trainable" else model_engine[2]
-    executor_engine = args.llm_engine_name if model_engine[3] == "trainable" else model_engine[3]
+    verifier_engine = planner_fixed_engine if model_engine[2] == "fixed" else args.llm_engine_name if model_engine[2] == "trainable" else model_engine[2]
+    executor_engine = planner_fixed_engine if model_engine[3] == "fixed" else args.llm_engine_name if model_engine[3] == "trainable" else model_engine[3]
+
+    planner_main_base_url = default_vllm_base_url(planner_main_engine, args.base_url)
+    planner_fixed_base_url = args.fixed_base_url
+    if planner_fixed_base_url is None and planner_fixed_engine == args.llm_engine_name:
+        planner_fixed_base_url = args.base_url
+
+    verifier_base_url = planner_fixed_base_url if model_engine[2] == "fixed" else default_vllm_base_url(verifier_engine, args.base_url)
+    executor_base_url = planner_fixed_base_url if model_engine[3] == "fixed" else default_vllm_base_url(executor_engine, args.base_url)
 
     print(f"Model Engine Configuration:")
     print(f"  - Planner Main: {planner_main_engine}")
@@ -381,9 +400,11 @@ def main(args):
         enabled_tools=enabled_tools,
         tool_engine=tool_engine,
         model_string=args.llm_engine_name,
+        tool_default_model_string=planner_fixed_engine,
         verbose=args.verbose,
         vllm_config_path=args.vllm_config_path,
         base_url=args.base_url,
+        tool_base_url=planner_fixed_base_url,
         check_model=args.check_model
     )
 
@@ -394,7 +415,8 @@ def main(args):
         toolbox_metadata=initializer.toolbox_metadata,
         available_tools=initializer.available_tools,
         verbose=args.verbose,
-        base_url=args.base_url if planner_main_engine == args.llm_engine_name else None,
+        base_url=planner_main_base_url,
+        fixed_base_url=planner_fixed_base_url,
         temperature=args.temperature
     )
 
@@ -406,7 +428,8 @@ def main(args):
         toolbox_metadata=initializer.toolbox_metadata,
         available_tools=initializer.available_tools,
         verbose=args.verbose,
-        base_url=args.base_url if verifier_engine == args.llm_engine_name else None,
+        base_url=verifier_base_url,
+        fixed_base_url=planner_fixed_base_url,
         temperature=args.temperature
     )
 
@@ -416,9 +439,11 @@ def main(args):
     # Instantiate Executor
     executor = Executor(
         llm_engine_name=executor_engine,
+        llm_engine_fixed_name=executor_engine,
         root_cache_dir=args.root_cache_dir,
         verbose=args.verbose,
-        base_url=args.base_url if executor_engine == args.llm_engine_name else None,
+        base_url=executor_base_url,
+        fixed_base_url=executor_base_url,
         temperature=args.temperature,
         tool_instances_cache=initializer.tool_instances_cache
     )

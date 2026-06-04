@@ -65,7 +65,7 @@ For optimal results with the {TOOL_NAME}:
 
 class Python_Coder_Tool(BaseTool):
     require_llm_engine = True
-    def __init__(self, model_string="gpt-4o"):
+    def __init__(self, model_string="gpt-4o", base_url=None):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description="A tool that generates and executes simple Python code snippets for basic arithmetical calculations and math-related problems. The generated code runs in a highly restricted environment with only basic mathematical operations available.",
@@ -93,12 +93,15 @@ class Python_Coder_Tool(BaseTool):
             }
         )
         print(f"Initializing Python_Coder_Tool with model_string: {model_string}")
+        self.model_string = model_string
+        self.base_url = base_url
         # self.llm_engine = create_llm_engine(model_string=model_string, is_multimodal=False, base_url=base_url) if model_string else None
 
         # NOTE: deterministic mode
         self.llm_engine = create_llm_engine(
             model_string=model_string, 
             is_multimodal=False, 
+            base_url=self.base_url,
             temperature=0.0, 
             top_p=1.0, 
             frequency_penalty=0.0, 

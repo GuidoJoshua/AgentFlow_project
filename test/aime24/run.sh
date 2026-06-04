@@ -4,12 +4,20 @@
 TASK="aime24"
 THREADS=20
 DATA_FILE_NAME="data.json"
+FIXED_PORT=8001
+FIXED_BASE_URL="http://localhost:${FIXED_PORT}/v1"
+CODER_PORT=8002
+CODER_BASE_URL="http://localhost:${CODER_PORT}/v1"
 
 MODELS=(
-    "8008:vllm-AgentFlow/agentflow-planner-7b,AgentFlow-7B,\
-Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
-gpt-4o-mini|dashscope-qwen2.5-coder-7b-instruct|Default|Default,\
-trainable|dashscope|dashscope|dashscope"
+    "${FIXED_PORT}:vllm-Qwen/Qwen2.5-7B-Instruct,Qwen2.5-7B-Instruct,\
+    Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
+    gpt-4o-mini|vllm-Qwen/Qwen2.5-Coder-7B-Instruct@${CODER_BASE_URL}|Default|Default,\
+    trainable|vllm-Qwen/Qwen2.5-7B-Instruct|fixed|fixed"
+    # "8000:vllm-AgentFlow/agentflow-planner-7b,AgentFlow-7B,\
+    # Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
+    # gpt-4o-mini|vllm-Qwen/Qwen2.5-Coder-7B-Instruct@${CODER_BASE_URL}|Default|Default,\
+    # trainable|vllm-Qwen/Qwen2.5-7B-Instruct|fixed|fixed"
 #     ":dashscope-qwen2.5-7b-instruct,Qwen2.5-7b-naive,\
 # Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
 # dashscope-qwen2.5-7b-instruct|dashscope-qwen2.5-7b-instruct|Default|Default,\
@@ -28,10 +36,11 @@ for MODEL_SPEC in "${MODELS[@]}"; do
     # Parse model specification
     PORT=$(echo "$MODEL_SPEC" | cut -d":" -f1)
     REST=$(echo "$MODEL_SPEC" | cut -d":" -f2-)
-    IFS="," read -r LLM LABEL ENABLED_TOOLS_RAW TOOL_ENGINE_RAW MODEL_ENGINE_RAW <<< "$REST"
+    IFS="," read -r LLM LABEL ENABLED_TOOLS_RAW TOOL_ENGINE_RAW MODEL_ENGINE_RAW FIXED_BASE_URL_OVERRIDE_RAW <<< "$REST"
     ENABLED_TOOLS=$(echo "$ENABLED_TOOLS_RAW" | tr "|" ",")
     TOOL_ENGINE=$(echo "$TOOL_ENGINE_RAW" | tr "|" ",")
     MODEL_ENGINE=$(echo "$MODEL_ENGINE_RAW" | tr "|" ",")
+    MODEL_FIXED_BASE_URL="${FIXED_BASE_URL_OVERRIDE_RAW:-$FIXED_BASE_URL}"
     [ -z "$MODEL_ENGINE" ] && MODEL_ENGINE="trainable,dashscope,dashscope,dashscope"
     
     if [ -n "$PORT" ]; then
@@ -74,13 +83,13 @@ for MODEL_SPEC in "${MODELS[@]}"; do
         run_task() {
             local i=$1
             if [ "$USE_BASE_URL" = true ]; then
-                uv run python solve.py --index $i --task "$TASK" --data_file "$DATA_FILE" --llm_engine_name "$LLM" --root_cache_dir "$CACHE_DIR" --output_json_dir "$OUT_DIR" --output_types direct --enabled_tools "$ENABLED_TOOLS" --tool_engine "$TOOL_ENGINE" --model_engine "$MODEL_ENGINE" --max_time 300 --max_steps 10 --temperature 0.0 --base_url "$BASE_URL" 2>&1 | tee "$LOG_DIR/$i.log"
+                uv run python solve.py --index $i --task "$TASK" --data_file "$DATA_FILE" --llm_engine_name "$LLM" --root_cache_dir "$CACHE_DIR" --output_json_dir "$OUT_DIR" --output_types direct --enabled_tools "$ENABLED_TOOLS" --tool_engine "$TOOL_ENGINE" --model_engine "$MODEL_ENGINE" --max_time 300 --max_steps 10 --temperature 0.0 --base_url "$BASE_URL" --fixed_base_url "$MODEL_FIXED_BASE_URL" 2>&1 | tee "$LOG_DIR/$i.log"
             else
-                uv run python solve.py --index $i --task "$TASK" --data_file "$DATA_FILE" --llm_engine_name "$LLM" --root_cache_dir "$CACHE_DIR" --output_json_dir "$OUT_DIR" --output_types direct --enabled_tools "$ENABLED_TOOLS" --tool_engine "$TOOL_ENGINE" --model_engine "$MODEL_ENGINE" --max_time 300 --max_steps 10 --temperature 0.0 2>&1 | tee "$LOG_DIR/$i.log"
+                uv run python solve.py --index $i --task "$TASK" --data_file "$DATA_FILE" --llm_engine_name "$LLM" --root_cache_dir "$CACHE_DIR" --output_json_dir "$OUT_DIR" --output_types direct --enabled_tools "$ENABLED_TOOLS" --tool_engine "$TOOL_ENGINE" --model_engine "$MODEL_ENGINE" --max_time 300 --max_steps 10 --temperature 0.0 --fixed_base_url "$MODEL_FIXED_BASE_URL" 2>&1 | tee "$LOG_DIR/$i.log"
             fi
         }
         export -f run_task
-        export TASK DATA_FILE LOG_DIR OUT_DIR CACHE_DIR LLM ENABLED_TOOLS TOOL_ENGINE MODEL_ENGINE BASE_URL USE_BASE_URL
+        export TASK DATA_FILE LOG_DIR OUT_DIR CACHE_DIR LLM ENABLED_TOOLS TOOL_ENGINE MODEL_ENGINE BASE_URL MODEL_FIXED_BASE_URL USE_BASE_URL
         parallel -j $THREADS run_task ::: "${indices[@]}"
     fi
 

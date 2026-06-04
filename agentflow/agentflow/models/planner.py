@@ -13,13 +13,18 @@ from agentflow.models.memory import Memory
 class Planner:
     def __init__(self, llm_engine_name: str, llm_engine_fixed_name: str = "gpt-4o",
                  toolbox_metadata: dict = None, available_tools: List = None,
-                 verbose: bool = False, base_url: str = None, is_multimodal: bool = False,
+                 verbose: bool = False, base_url: str = None, fixed_base_url: str = None, is_multimodal: bool = False,
                  check_model: bool = True, temperature : float = .0):
         self.llm_engine_name = llm_engine_name
         self.llm_engine_fixed_name = llm_engine_fixed_name
         self.is_multimodal = is_multimodal
         # self.llm_engine_mm = create_llm_engine(model_string=llm_engine_name, is_multimodal=False, base_url=base_url, temperature = temperature)
-        self.llm_engine_fixed = create_llm_engine(model_string=llm_engine_fixed_name, is_multimodal=False, temperature = temperature)
+        self.llm_engine_fixed = create_llm_engine(
+            model_string=llm_engine_fixed_name,
+            base_url=fixed_base_url,
+            is_multimodal=False,
+            temperature=temperature,
+        )
         self.llm_engine = create_llm_engine(model_string=llm_engine_name, is_multimodal=False, base_url=base_url, temperature = temperature)
         self.toolbox_metadata = toolbox_metadata if toolbox_metadata is not None else {}
         self.available_tools = available_tools if available_tools is not None else []
@@ -54,8 +59,8 @@ class Planner:
 
 
         print("Input data of `generate_base_response()`: ", input_data)
-        self.base_response = self.llm_engine(input_data, max_tokens=max_tokens)
-        # self.base_response = self.llm_engine_fixed(input_data, max_tokens=max_tokens)
+        # self.base_response = self.llm_engine(input_data, max_tokens=max_tokens)
+        self.base_response = self.llm_engine_fixed(input_data, max_tokens=max_tokens)
 
         return self.base_response
 
@@ -122,8 +127,8 @@ Be biref and precise with insight.
         print("Input data of `analyze_query()`: ", input_data)
 
         # self.query_analysis = self.llm_engine_mm(input_data, response_format=QueryAnalysis)
-        # self.query_analysis = self.llm_engine(input_data, response_format=QueryAnalysis)
-        self.query_analysis = self.llm_engine_fixed(input_data, response_format=QueryAnalysis)
+        self.query_analysis = self.llm_engine(input_data, response_format=QueryAnalysis)
+        # self.query_analysis = self.llm_engine_fixed(input_data, response_format=QueryAnalysis)
 
         return str(self.query_analysis).strip()
 
@@ -256,7 +261,7 @@ Remember: Your response MUST end with the Context, Sub-Goal, and Tool Name secti
                         """
         else:
             prompt_generate_next_step = f"""
-Task: Determine the optimal next step to address the query using available tools and previous steps.
+Task: Determine the optimal next step to address the query using available tools and previous context.
 
 Context:
 - **Query:** {question}
@@ -266,25 +271,30 @@ Context:
 - **Previous Steps:** {memory.get_actions()}
 
 Instructions:
-1. Analyze the query, previous steps, and available tools.
-2. Select the **single best tool** for the next step.
-3. Formulate a specific, achievable **sub-goal** for that tool.
-4. Provide all necessary **context** (data, file names, variables) for the tool to function.
+1. Analyze the current objective, the history of executed steps, and the capabilities of the available tools.
+2. Select the single most appropriate tool for the next action.
+3. Consider the specificity of the task (e.g., calculation vs. information retrieval).
+4. Consider the source of required information (e.g., general knowledge, mathematical computation, a specific URL).
+5. Consider the limitations of each tool as defined in the metadata.
+6. Formulate a clear, concise, and achievable sub-goal that precisely defines what the selected tool should accomplish.
+7. Provide all necessary context (e.g., relevant data, variable names, file paths, or URLs) so the tool can execute its task without ambiguity.
+
 
 Response Format:
-1.  **Justification:** Explain your choice of tool and sub-goal.
-2.  **Context:** Provide all necessary information for the tool.
-3.  **Sub-Goal:** State the specific objective for the tool.
-4.  **Tool Name:** State the exact name of the selected tool.
+1. Justification: Explain why the chosen tool is optimal for the sub-goal, referencing its capabilities and the task requirements.
+2. Context: Provide all prerequisite information for the tool.
+3. Sub-Goal: State the exact objective for the tool.
+4. Tool Name: State the exact name of the selected tool (e.g., Wikipedia Search).
 
 Rules:
-- Select only ONE tool.
-- The sub-goal must be directly achievable by the selected tool.
-- The Context section must contain all information the tool needs to function.
-- The response must end with the Context, Sub-Goal, and Tool Name sections in that order, with no extra content.
+- Select only one tool per step.
+- The Sub-Goal must be directly and solely achievable by the selected tool.
+- The Context section must contain all information the tool needs; do not assume implicit knowledge.
+- The final response must end with the Context, Sub-Goal, and Tool Name sections in that order. No additional text should follow.
                     """
             
         next_step = self.llm_engine(prompt_generate_next_step, response_format=NextStep)
+        # next_step = self.llm_engine_fixed(prompt_generate_next_step, response_format=NextStep)
         if json_data is not None:
             json_data[f"action_predictor_{step_count}_prompt"] = prompt_generate_next_step
             json_data[f"action_predictor_{step_count}_response"] = str(next_step)
@@ -359,8 +369,8 @@ Instructions:
                 print(f"Error reading image file: {str(e)}")
 
         # final_output = self.llm_engine_mm(input_data)
-        # final_output = self.llm_engine(input_data)
-        final_output = self.llm_engine_fixed(input_data)
+        final_output = self.llm_engine(input_data)
+        # final_output = self.llm_engine_fixed(input_data)
 
         return final_output
 
@@ -391,13 +401,20 @@ Context:
 - **Actions Taken:** {memory.get_actions()}
 
 Instructions:
-1. Review the query and the results from all actions.
-2. Synthesize the key findings into a clear, step-by-step summary of the process.
-3. Provide a direct, precise answer to the original query.
+1. Carefully review the original user query, the initial analysis, and the complete sequence of actions and their results.
+2. Synthesize the key findings from the action history into a coherent narrative.
+3. Construct a clear, step-by-step summary that explains how each action contributed to solving the query.
+4. Provide a direct, precise, and standalone final answer to the original query.
 
 Output Structure:
-1.  **Process Summary:** A clear, step-by-step breakdown of how the query was addressed, including the purpose and key results of each action.
-2.  **Answer:** A direct and concise final answer to the query.
+1. Process Summary: A clear, step-by-step breakdown of how the query was addressed. For each action, state its purpose (e.g., “To verify X”) and summarize its key result or finding in one sentence.
+2. Answer: A direct and concise final answer to the query. This should be a self-contained statement that fully resolves the user’s question.
+
+Rules:
+- The response must follow the exact two-part structure above.
+- The Process Summary should be informative but concise, focusing on the logical flow of the solution.
+- The Answer must be placed at the very end and be clearly identifiable.
+- Do not include any additional sections, explanations, or disclaimers beyond the specified structure.
 """
 
         input_data = [prompt_generate_final_output]
@@ -414,4 +431,3 @@ Output Structure:
         # final_output = self.llm_engine_mm(input_data)
 
         return final_output
-

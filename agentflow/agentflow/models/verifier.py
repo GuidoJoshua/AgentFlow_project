@@ -13,12 +13,17 @@ from agentflow.models.memory import Memory
 class Verifier:
     def __init__(self, llm_engine_name: str, llm_engine_fixed_name: str = "dashscope",
                  toolbox_metadata: dict = None, available_tools: list = None,
-                 verbose: bool = False, base_url: str = None, is_multimodal: bool = False,
+                 verbose: bool = False, base_url: str = None, fixed_base_url: str = None, is_multimodal: bool = False,
                  check_model: bool = True, temperature: float = .0):
         self.llm_engine_name = llm_engine_name
         self.llm_engine_fixed_name = llm_engine_fixed_name
         self.is_multimodal = is_multimodal
-        self.llm_engine_fixed = create_llm_engine(model_string=llm_engine_fixed_name, is_multimodal=False, temperature=temperature)
+        self.llm_engine_fixed = create_llm_engine(
+            model_string=llm_engine_fixed_name,
+            base_url=fixed_base_url,
+            is_multimodal=False,
+            temperature=temperature,
+        )
         self.llm_engine = create_llm_engine(model_string=llm_engine_name, is_multimodal=False, base_url=base_url, temperature=temperature)
         self.toolbox_metadata = toolbox_metadata if toolbox_metadata is not None else {}
         self.available_tools = available_tools if available_tools is not None else []
@@ -115,16 +120,16 @@ Context:
 - **Memory (Tools Used & Results):** {memory.get_actions()}
 
 Instructions:
-1.  Review the query, initial analysis, and memory.
-2.  Assess the completeness of the memory: Does it fully address all parts of the query?
-3.  Check for potential issues:
-    -   Are there any inconsistencies or contradictions?
-    -   Is any information ambiguous or in need of verification?
-4.  Determine if any unused tools could provide missing information.
+1. Review the original query, the initial analysis, and the complete history of actions and results in the memory.
+2. Does the accumulated information fully address all aspects of the query?
+3. Are there any unanswered sub-questions or missing pieces of information?
+4. Are there any inconsistencies or contradictions between different steps?
+5. Is any information ambiguous, potentially hallucinated, or in need of verification?
+6. Determine if any unused tools could provide critical missing information based on their metadata.
 
 Final Determination:
--   If the memory is sufficient, explain why and conclude with "STOP".
--   If more information is needed, explain what's missing, which tools could help, and conclude with "CONTINUE".
+-   If the memory is sufficient to form a complete and accurate answer, explain why and conclude with “Conclusion: STOP”.
+-   If more information is needed, clearly state what is missing, suggest which tool(s) could help, and conclude with “Conclusion: CONTINUE”.
 
 IMPORTANT: The response must end with either "Conclusion: STOP" or "Conclusion: CONTINUE".
 """

@@ -68,9 +68,11 @@ class Initializer:
     enabled_tools: List[str] = [],
     tool_engine: List[str] = [],
     model_string: str = None,
+    tool_default_model_string: str = None,
     verbose: bool = False,
     vllm_config_path: str = None,
     base_url: str = None,
+    tool_base_url: str = None,
     check_model: bool = True,
     parallel_loading: bool = True,
     max_workers: int = None):
@@ -81,9 +83,11 @@ class Initializer:
             enabled_tools: List of tool names to enable
             tool_engine: List of engine names corresponding to each tool
             model_string: Default model string
+            tool_default_model_string: Default model string for tool-local LLMs
             verbose: Whether to print verbose output
             vllm_config_path: Path to vllm config
             base_url: Base URL for API
+            tool_base_url: Base URL for tool-local LLMs
             check_model: Whether to check model availability
             parallel_loading: Whether to load tools in parallel (default: True)
             max_workers: Maximum number of parallel workers (default: None for auto-detect)
@@ -97,10 +101,12 @@ class Initializer:
         self.tool_engine = tool_engine
         self.load_all = self.enabled_tools == ["all"]
         self.model_string = model_string
+        self.tool_default_model_string = tool_default_model_string or model_string
         self.verbose = verbose
         self.vllm_server_process = None
         self.vllm_config_path = vllm_config_path
         self.base_url = base_url
+        self.tool_base_url = tool_base_url if tool_base_url is not None else base_url
         self.check_model = check_model
         self.parallel_loading = parallel_loading
 
@@ -120,6 +126,68 @@ class Initializer:
         # if vllm, set up the vllm server
         # if model_string.startswith("vllm-"):
         #     self.setup_vllm_server()
+
+    def _tool_supports_parameter(self, tool_class, param_name: str) -> bool:
+        try:
+            signature = inspect.signature(tool_class.__init__)
+        except (TypeError, ValueError):
+            return False
+
+        if param_name in signature.parameters:
+            return True
+
+        return any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+
+    def _instantiate_tool(self, tool_class, engine: str = None):
+        supports_model_string = self._tool_supports_parameter(tool_class, "model_string")
+        supports_base_url = self._tool_supports_parameter(tool_class, "base_url")
+        requires_llm = getattr(tool_class, "require_llm_engine", False)
+
+        model_string = None
+        base_url = None
+        explicit_base_url = None
+
+        if engine and "@" in engine and engine not in {"Default", "self", "fixed"}:
+            engine, explicit_base_url = engine.rsplit("@", 1)
+
+        if engine == "self":
+            model_string = self.model_string
+            base_url = self.base_url
+        elif engine == "Default" or engine is None:
+            pass
+        elif engine == "fixed":
+            if requires_llm and self.tool_default_model_string:
+                model_string = self.tool_default_model_string
+                base_url = self.tool_base_url
+        elif engine:
+            model_string = engine
+            if self.tool_base_url and engine.startswith("vllm-"):
+                base_url = self.tool_base_url
+
+        if explicit_base_url:
+            base_url = explicit_base_url
+
+        init_kwargs = {}
+        if model_string and supports_model_string:
+            init_kwargs["model_string"] = model_string
+        if base_url and supports_base_url:
+            init_kwargs["base_url"] = base_url
+
+        return tool_class(**init_kwargs) if init_kwargs else tool_class()
+
+    @staticmethod
+    def _describe_tool_engine(instance):
+        model_string = getattr(instance, "model_string", None) or getattr(instance, "search_model", None)
+        base_url = getattr(instance, "base_url", None)
+
+        if model_string and base_url:
+            return f"{model_string} @ {base_url}"
+        if model_string:
+            return model_string
+        return "default"
 
     def get_project_root(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -222,14 +290,9 @@ class Initializer:
 
                         if tool_index >= 0 and tool_index < len(self.tool_engine):
                             engine = self.tool_engine[tool_index]
-                            if engine == "Default":
-                                tool_instance = obj()
-                            elif engine == "self":
-                                tool_instance = obj(model_string=self.model_string)
-                            else:
-                                tool_instance = obj(model_string=engine)
+                            tool_instance = self._instantiate_tool(obj, engine)
                         else:
-                            tool_instance = obj()
+                            tool_instance = self._instantiate_tool(obj)
 
                         # Use the external tool name (from TOOL_NAME) as the key
                         metadata_key = getattr(tool_instance, 'tool_name', name)
@@ -346,7 +409,7 @@ class Initializer:
 
                         for instance_key, instance in result['instance_list']:
                             self.tool_instances_cache[instance_key] = instance
-                            print(f"✓ Loaded: {instance_key} with engine: {getattr(instance, 'model_string', 'default')}")
+                            print(f"✓ Loaded: {instance_key} with engine: {self._describe_tool_engine(instance)}")
                     except Exception as e:
                         print(f"Exception loading {import_path}: {str(e)}")
         else:
@@ -368,7 +431,7 @@ class Initializer:
 
                 for instance_key, instance in result['instance_list']:
                     self.tool_instances_cache[instance_key] = instance
-                    print(f"Cached tool instance: {instance_key} with engine: {getattr(instance, 'model_string', 'default')}")
+                    print(f"Cached tool instance: {instance_key} with engine: {self._describe_tool_engine(instance)}")
 
         elapsed_time = time.time() - start_time
         print(f"\n==> Total number of tools imported: {len(self.toolbox_metadata)} (took {elapsed_time:.2f}s)")
@@ -388,7 +451,7 @@ class Initializer:
                 # This preserves the engine configuration from load_tools_and_get_metadata
                 if tool_name in self.tool_instances_cache:
                     tool_instance = self.tool_instances_cache[tool_name]
-                    print(f"✓ Using cached instance with engine: {getattr(tool_instance, 'model_string', 'default')}")
+                    print(f"✓ Using cached instance with engine: {self._describe_tool_engine(tool_instance)}")
                 else:
                     # Fallback: create new instance if not in cache
                     # tool_name here is the long external name from metadata

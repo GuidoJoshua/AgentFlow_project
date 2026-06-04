@@ -91,7 +91,9 @@ def find_most_similar_candidate(query: str, candidates: list) -> str:
 
 class ResultScorer:
     def __init__(self, llm_engine=None):
-        self.llm_engine = llm_engine or ChatOpenAI(model_string="gpt-4o", is_multimodal=False, enable_cache=True)
+        # Disable disk cache for scoring to avoid schema/version mismatches in
+        # persisted cache directories across environments.
+        self.llm_engine = llm_engine or ChatOpenAI(model_string="gpt-4o", is_multimodal=False, use_cache=False)
         print(f"\nLocal OpenAI engine {self.llm_engine.model_string} initialized.\n")
 
     def answer_verification_twostage(self, question, response, correct_answer, choices):
@@ -182,6 +184,10 @@ Response Format:
 
         verification = self.llm_engine(query_prompt, response_format=AnswerVerification)
 
+        if isinstance(verification, dict):
+            error_message = verification.get("message", str(verification))
+            raise RuntimeError(f"LLM verification failed: {error_message}")
+
         analysis = verification.analysis.strip()
         true_false = verification.true_false
 
@@ -211,9 +217,13 @@ Response Format:
                 )
             else:
                 # Single-stage scoring for other tasks
-                analysis, true_false = self.answer_verification(
-                    question, response, correct_answer
-                )
+                try:
+                    analysis, true_false = self.answer_verification(
+                        question, response, correct_answer
+                    )
+                except Exception as e:
+                    analysis = f"Verification failed: {e}"
+                    true_false = False
 
             return pid, analysis, true_false
 

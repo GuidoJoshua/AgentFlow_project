@@ -74,7 +74,7 @@ In the fourth quarter of 2023, the company achieved a total revenue of $5.2 mill
 class Web_Search_Tool(BaseTool):
     require_llm_engine = True
 
-    def __init__(self, model_string="gpt-4o-mini"):
+    def __init__(self, model_string="gpt-4o-mini", base_url=None):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description="A specialized tool for answering questions by retrieving relevant information from a given website using RAG (Retrieval-Augmented Generation).",
@@ -105,6 +105,7 @@ class Web_Search_Tool(BaseTool):
         # self.model_string = "dashscope" # NOTE: weak Qwen2.5-7B model for tool
 
         self.model_string = model_string
+        self.base_url = base_url
         print(f"Initializing Website RAG Tool with model: {self.model_string}")
         self.chunk_size = 200
         self.chunk_overlap = 20
@@ -116,6 +117,7 @@ class Web_Search_Tool(BaseTool):
         # NOTE: deterministic mode
         self.llm_engine = create_llm_engine(
             model_string=self.model_string, 
+            base_url=self.base_url,
             temperature=0.0, 
             top_p=1.0, 
             frequency_penalty=0.0, 
