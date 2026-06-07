@@ -22,6 +22,13 @@ Additional Considerations:
 """
 
 # Planner: NextStep
+class PlannedStep(BaseModel):
+    justification: str
+    context: str
+    sub_goal: str
+
+
+# Planner: NextStep
 class NextStep(BaseModel):
     justification: str
     context: str

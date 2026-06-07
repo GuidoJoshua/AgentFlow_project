@@ -150,13 +150,6 @@ IMPORTANT: The response must end with either "Conclusion: STOP" or "Conclusion: 
         return stop_verification
 
     def extract_conclusion(self, response: Any) -> Tuple[str, str]:
-        if isinstance(response, str):
-            # Attempt to parse the response as JSON
-            try:
-                response_dict = json.loads(response)
-                response = MemoryVerification(**response_dict)
-            except Exception as e:
-                print(f"Failed to parse response as JSON: {str(e)}")
         if isinstance(response, MemoryVerification):
             analysis = response.analysis
             stop_signal = response.stop_signal
@@ -164,7 +157,19 @@ IMPORTANT: The response must end with either "Conclusion: STOP" or "Conclusion: 
                 return analysis, 'STOP'
             else:
                 return analysis, 'CONTINUE'
-        else:
+
+        if isinstance(response, dict):
+            try:
+                structured_response = MemoryVerification(**response)
+                return self.extract_conclusion(structured_response)
+            except Exception:
+                analysis = str(response.get("analysis", response.get("message", response)))
+                stop_signal = response.get("stop_signal")
+                if isinstance(stop_signal, bool):
+                    return analysis, 'STOP' if stop_signal else 'CONTINUE'
+                return analysis, 'CONTINUE'
+
+        if isinstance(response, str):
             analysis = response
             pattern = r'conclusion\**:?\s*\**\s*(\w+)'
             matches = list(re.finditer(pattern, response, re.IGNORECASE | re.DOTALL))
@@ -173,7 +178,15 @@ IMPORTANT: The response must end with either "Conclusion: STOP" or "Conclusion: 
                 if conclusion in ['STOP', 'CONTINUE']:
                     return analysis, conclusion
 
-            # If no valid conclusion found, search for STOP or CONTINUE anywhere in the text
+            stripped = response.lstrip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    response_dict = json.loads(response)
+                    structured_response = MemoryVerification(**response_dict)
+                    return self.extract_conclusion(structured_response)
+                except Exception:
+                    pass
+
             if 'stop' in response.lower():
                 return analysis, 'STOP'
             elif 'continue' in response.lower():
@@ -181,3 +194,6 @@ IMPORTANT: The response must end with either "Conclusion: STOP" or "Conclusion: 
             else:
                 print("No valid conclusion (STOP or CONTINUE) found in the response. Continuing...")
                 return analysis, 'CONTINUE'
+
+        analysis = str(response)
+        return analysis, 'CONTINUE'

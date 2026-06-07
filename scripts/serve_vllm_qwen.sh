@@ -3,23 +3,28 @@
 # ===========================================================================
 # Script: serve_vllm_qwen.sh
 # Description:
-#   Launch both Qwen2.5-7B-Instruct and Qwen2.5-Coder-7B-Instruct with vLLM
-#   in separate tmux sessions.
+#   Launch the AgentFlow planner, Qwen2.5-7B-Instruct, and
+#   Qwen2.5-Coder-7B-Instruct with vLLM in separate tmux sessions.
 #
 # Usage:
-#   INSTRUCT_GPU=0 CODER_GPU=1 bash scripts/serve_vllm_qwen.sh
-#   INSTRUCT_GPU=0 CODER_GPU=0 bash scripts/serve_vllm_qwen.sh
+#   PLANNER_GPU=2 INSTRUCT_GPU=0 CODER_GPU=1 bash scripts/serve_vllm_qwen.sh
+#   PLANNER_GPU=0 INSTRUCT_GPU=0 CODER_GPU=0 bash scripts/serve_vllm_qwen.sh
 # ===========================================================================
 
 set -euo pipefail
 
+#PLANNER_MODEL="${PLANNER_MODEL:-AgentFlow/agentflow-planner-7b}"
+#PLANNER_GPU="${PLANNER_GPU:-2}"
+#PLANNER_PORT="${PLANNER_PORT:-8000}"
+#PLANNER_SESSION="${PLANNER_SESSION:-vllm_agentflow_planner}"
+
 INSTRUCT_MODEL="${INSTRUCT_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
-INSTRUCT_GPU="${INSTRUCT_GPU:-0}"
+INSTRUCT_GPU="${INSTRUCT_GPU:-2}"
 INSTRUCT_PORT="${INSTRUCT_PORT:-8001}"
 INSTRUCT_SESSION="${INSTRUCT_SESSION:-vllm_qwen_instruct}"
 
 CODER_MODEL="${CODER_MODEL:-Qwen/Qwen2.5-Coder-7B-Instruct}"
-CODER_GPU="${CODER_GPU:-1}"
+CODER_GPU="${CODER_GPU:-3}"
 CODER_PORT="${CODER_PORT:-8002}"
 CODER_SESSION="${CODER_SESSION:-vllm_qwen_coder}"
 
@@ -61,11 +66,12 @@ start_server() {
     tmux send-keys -t "${session}:0" "$cmd_start" C-m
 }
 
+#start_server "$PLANNER_MODEL" "$PLANNER_GPU" "$PLANNER_PORT" "$PLANNER_SESSION"
 start_server "$INSTRUCT_MODEL" "$INSTRUCT_GPU" "$INSTRUCT_PORT" "$INSTRUCT_SESSION"
 start_server "$CODER_MODEL" "$CODER_GPU" "$CODER_PORT" "$CODER_SESSION"
 
 echo ""
-echo "=== Qwen servers launched"
+echo "=== Planner and Qwen servers launched"
+#echo "Planner:  tmux attach-session -t $PLANNER_SESSION"
 echo "Instruct: tmux attach-session -t $INSTRUCT_SESSION"
 echo "Coder:    tmux attach-session -t $CODER_SESSION"
-echo "Kill all: tmux kill-session -t $INSTRUCT_SESSION; tmux kill-session -t $CODER_SESSION"

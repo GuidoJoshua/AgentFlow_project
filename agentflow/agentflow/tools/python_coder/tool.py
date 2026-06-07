@@ -40,27 +40,23 @@ def timeout(seconds):
 
 LIMITATION = f"""
 The {TOOL_NAME} has several limitations:
-1. Restricted to basic Python arithmetic operations and built-in mathematical functions.
+1. Restricted to short, self-contained Python snippets that can run in a tightly controlled execution environment.
 2. Cannot use any external libraries or modules, including those in the Python standard library.
-3. Limited to simple mathematical calculations and problems.
-4. Cannot perform any string processing, data structure manipulation, or complex algorithms.
-5. No access to any system resources, file operations, or network requests.
-6. Cannot use 'import' statements.
-7. All calculations must be self-contained within a single function or script.
-8. Input must be provided directly in the query string.
-9. Output is limited to numerical results or simple lists/tuples of numbers.
-10. Output should be kept to a single numerical result or a simple list/tuple of numbers.
-11. DO NOT generate loop output.
+3. No access to system resources, file operations, environment inspection, or network requests.
+4. Cannot use 'import' statements.
+5. Inputs must be provided directly in the query string.
+6. Outputs should stay compact and easy to inspect.
+7. Long-running code, heavy computation, or large generated output may fail or be truncated.
+8. The tool is better suited for small implementation or verification tasks than for broad, open-ended software development.
 """
 
 BEST_PRACTICE = f"""
 For optimal results with the {TOOL_NAME}:
-1. Provide clear and specific queries that describe the desired mathematical calculation.
-2. Include all necessary numerical inputs directly in the query string.
-3. Keep tasks focused on basic arithmetic, algebraic calculations, or simple mathematical algorithms.
-4. Ensure all required numerical data is included in the query.
-5. Verify that the query only involves mathematical operations and does not require any data processing or complex algorithms.
-6. Review generated code to ensure it only uses basic Python arithmetic operations and built-in math functions.
+1. Describe the desired code behavior clearly, including inputs, expected output, and any important constraints.
+2. Keep the task narrowly scoped to a small, self-contained snippet that can be executed in one pass.
+3. Include any example values or edge cases directly in the query when they matter for correctness.
+4. Use the tool for lightweight implementation, sanity checks, or executable validation of a concrete idea.
+5. Review the generated code and execution result before relying on it in later reasoning steps.
 """
 
 class Python_Coder_Tool(BaseTool):
@@ -68,23 +64,19 @@ class Python_Coder_Tool(BaseTool):
     def __init__(self, model_string="gpt-4o", base_url=None):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="A tool that generates and executes simple Python code snippets for basic arithmetical calculations and math-related problems. The generated code runs in a highly restricted environment with only basic mathematical operations available.",
+            tool_description="A tool that generates and executes short Python code snippets in a highly restricted environment for lightweight implementation, validation, and executable checks.",
             tool_version="1.0.0",
             input_types={
-                "query": "str - A clear, specific description of the arithmetic calculation or math problem to be solved, including any necessary numerical inputs."},
-            output_type="dict - A dictionary containing the generated code, calculation result, and any error messages.",
+                "query": "str - A clear, specific description of the code to implement or execute, including any necessary inputs and expected behavior."},
+            output_type="dict - A dictionary containing the generated code, execution output, captured variables, and any error messages.",
             demo_commands=[
-                # {
-                #     "command": 'execution = tool.execute(query="Calculate the factorial of 5")',
-                #     "description": "Generate a Python code snippet to calculate the factorial of 5."
-                # },
                 {
-                    "command": 'execution = tool.execute(query="Find the sum of prime numbers up to 50")',
-                    "description": "Generate a Python code snippet to find the sum of prime numbers up to 50."
+                    "command": 'execution = tool.execute(query="Write Python code that sets retry_limit to 3, timeout_seconds to 30, and returns both values as a tuple.")',
+                    "description": "Generate a small Python code snippet that initializes simple configuration values and returns them."
                 },
                 {
-                    "command": 'query="Given the list [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], calculate the sum of squares of odd numbers"\nexecution = tool.execute(query=query)',
-                    "description": "Generate a Python function for a specific mathematical operation on a given list of numbers."
+                    "command": 'query="Write Python code that defines debug_mode as False, chooses the label \\"prod\\" when debug_mode is False, and returns the selected label."\nexecution = tool.execute(query=query)',
+                    "description": "Generate a simple Python snippet with basic variable assignment and conditional logic."
                 },
             ],
             user_metadata = {

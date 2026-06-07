@@ -13,8 +13,9 @@ sys.path.insert(0, project_root)
 from agentflow.agentflow.models.initializer import Initializer
 from agentflow.agentflow.models.planner import Planner
 from agentflow.agentflow.models.memory import Memory
+from agentflow.agentflow.models.tool_selector import ToolSelector
 from agentflow.agentflow.models.executor import Executor
-from agentflow.agentflow.models.utils import make_json_serializable_truncated
+from agentflow.agentflow.models.utils import make_json_serializable, make_json_serializable_truncated
 
 class Solver:
     def __init__(
@@ -23,6 +24,7 @@ class Solver:
         memory,
         executor,
         verifier,
+        tool_selector,
         task: str,
         data_file: str,
         task_description: str,
@@ -40,6 +42,7 @@ class Solver:
         self.verifier = verifier
         self.memory = memory
         self.executor = executor
+        self.tool_selector = tool_selector
         self.task = task
         self.data_file = data_file
         self.task_description = task_description
@@ -56,6 +59,42 @@ class Solver:
         assert all(output_type in ["base", "final", "direct"] for output_type in self.output_types), "Invalid output type. Supported types are 'base', 'final', 'direct'."
 
         self.benchmark_data = self.load_benchmark_data()
+
+    def _resolve_next_action(
+        self,
+        question: str,
+        image_path: str,
+        query_analysis: str,
+        step_count: int,
+        json_data: Dict[str, Any],
+    ):
+        next_step = self.planner.generate_next_step(
+            question,
+            image_path,
+            query_analysis,
+            self.memory,
+            step_count,
+            self.max_steps,
+            json_data,
+        )
+
+        selection_trace = None
+        if self.tool_selector and self.planner.tool_selection_mode == "embedding":
+            context, sub_goal = self.planner.extract_context_and_subgoal(next_step)
+            selection = self.tool_selector.select_tool(
+                question=question,
+                query_analysis=query_analysis,
+                context=context,
+                sub_goal=sub_goal,
+                memory_actions=self.memory.get_actions(),
+            )
+            tool_name = selection.selected_tool
+            selection_trace = selection.to_dict()
+            json_data[f"tool_selector_{step_count}"] = make_json_serializable(selection_trace)
+        else:
+            context, sub_goal, tool_name = self.planner.extract_context_subgoal_and_tool(next_step)
+
+        return next_step, context, sub_goal, tool_name, selection_trace
 
     def load_benchmark_data(self) -> List[Dict[str, Any]]:
         # Add task description to the query
@@ -174,16 +213,13 @@ class Solver:
 
                 # Generate next step
                 start_time_step = time.time()
-                next_step = self.planner.generate_next_step(
-                    question, 
-                    image_path, 
-                    query_analysis, 
-                    self.memory, 
-                    step_count, 
-                    self.max_steps,
-                    json_data
+                next_step, context, sub_goal, tool_name, selection_trace = self._resolve_next_action(
+                    question=question,
+                    image_path=image_path,
+                    query_analysis=query_analysis,
+                    step_count=step_count,
+                    json_data=json_data,
                 )
-                context, sub_goal, tool_name = self.planner.extract_context_subgoal_and_tool(next_step)
 
                 if self.verbose:
                     print(f"\n## [{step_count}] Next Step:")
@@ -192,7 +228,11 @@ class Solver:
                     print("#"*50)
                     print(f"\n==>Extracted Context:\n{context}")
                     print(f"\n==>Extracted Sub-goal:\n{sub_goal}\n")
-                    print(f"\n==>Extracted Tool:\n{tool_name}")
+                    if selection_trace is not None:
+                        print(f"\n==>Selected Tool:\n{tool_name}")
+                        print(f"\n==>Tool Candidates:\n{json.dumps(selection_trace['top_candidates'], indent=4)}")
+                    else:
+                        print(f"\n==>Extracted Tool:\n{tool_name}")
 
                 if tool_name is None or tool_name not in self.planner.available_tools:
                     print(f"Error: Tool '{tool_name}' is not available or not found.")
@@ -345,6 +385,10 @@ def parse_arguments():
     parser.add_argument("--base_url", type=str, default=None, help="Base URL for the LLM API.")
     parser.add_argument("--fixed_base_url", type=str, default=os.getenv("AGENTFLOW_FIXED_BASE_URL"), help="Base URL for the fixed local LLM API.")
     parser.add_argument("--check_model", type=bool, default=True, help="Check if the model is available.")
+    parser.add_argument("--tool_selection_mode", default="embedding", help="Tool selection strategy: planner or embedding.")
+    parser.add_argument("--tool_selection_embedding_model", default="gemini-embedding-001", help="Embedding model used when tool_selection_mode=embedding.")
+    parser.add_argument("--tool_selection_output_dimensionality", type=int, default=0, help="Optional output dimensionality for the embedding model. Use 0 for the model default.")
+    parser.add_argument("--tool_selection_top_k", type=int, default=3, help="Number of ranked tool candidates to log.")
     return parser.parse_args()
 
 
@@ -417,7 +461,8 @@ def main(args):
         verbose=args.verbose,
         base_url=planner_main_base_url,
         fixed_base_url=planner_fixed_base_url,
-        temperature=args.temperature
+        temperature=args.temperature,
+        tool_selection_mode=args.tool_selection_mode,
     )
 
     # Instantiate Verifier
@@ -435,6 +480,17 @@ def main(args):
 
     # Instantiate Memory
     memory = Memory()
+
+    tool_selector = None
+    if args.tool_selection_mode == "embedding":
+        tool_selector = ToolSelector(
+            toolbox_metadata=initializer.toolbox_metadata,
+            available_tools=initializer.available_tools,
+            embedding_model_name=args.tool_selection_embedding_model,
+            verbose=args.verbose,
+            output_dimensionality=args.tool_selection_output_dimensionality or None,
+            top_k=args.tool_selection_top_k,
+        )
 
     # Instantiate Executor
     executor = Executor(
@@ -454,6 +510,7 @@ def main(args):
         verifier=verifier,
         memory=memory,
         executor=executor,
+        tool_selector=tool_selector,
         task=args.task,
         data_file=args.data_file,
         task_description=args.task_description,

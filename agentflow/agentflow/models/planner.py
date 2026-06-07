@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple
 from PIL import Image
 
 from agentflow.engine.factory import create_llm_engine
-from agentflow.models.formatters import NextStep, QueryAnalysis
+from agentflow.models.formatters import NextStep, PlannedStep, QueryAnalysis
 from agentflow.models.memory import Memory
 
 
@@ -14,10 +14,13 @@ class Planner:
     def __init__(self, llm_engine_name: str, llm_engine_fixed_name: str = "gpt-4o",
                  toolbox_metadata: dict = None, available_tools: List = None,
                  verbose: bool = False, base_url: str = None, fixed_base_url: str = None, is_multimodal: bool = False,
-                 check_model: bool = True, temperature : float = .0):
+                 check_model: bool = True, temperature : float = .0, tool_selection_mode: str = "embedding"):
+        if tool_selection_mode not in {"planner", "embedding"}:
+            raise ValueError("tool_selection_mode must be either 'planner' or 'embedding'.")
         self.llm_engine_name = llm_engine_name
         self.llm_engine_fixed_name = llm_engine_fixed_name
         self.is_multimodal = is_multimodal
+        self.tool_selection_mode = tool_selection_mode
         # self.llm_engine_mm = create_llm_engine(model_string=llm_engine_name, is_multimodal=False, base_url=base_url, temperature = temperature)
         self.llm_engine_fixed = create_llm_engine(
             model_string=llm_engine_fixed_name,
@@ -68,6 +71,21 @@ class Planner:
         image_info = self.get_image_info(image)
 
         if self.is_multimodal:
+            tool_guidance = (
+                "4. Examine the available tools in the toolbox and identify the capability requirements "
+                "needed from future steps. Do not make a final tool choice."
+                if self.tool_selection_mode == "embedding"
+                else "4. Examine the available tools in the toolbox and determine which ones might relevant "
+                "and useful for addressing the query. Make sure to consider the user metadata for each tool, "
+                "including limitations and potential applications (if available)."
+            )
+            output_guidance = (
+                "3. A list of relevant tool capabilities from the toolbox, with a brief explanation of how "
+                "each capability would be utilized and its potential limitations."
+                if self.tool_selection_mode == "embedding"
+                else "3. A list of relevant tools from the toolbox, with a brief explanation of how each tool "
+                "would be utilized and its potential limitations."
+            )
             query_prompt = f"""
 Task: Analyze the given query with accompanying inputs and determine the skills and tools needed to address it effectively.
 
@@ -83,20 +101,26 @@ Instructions:
 1. Carefully read and understand the query and any accompanying inputs.
 2. Identify the main objectives or tasks within the query.
 3. List the specific skills that would be necessary to address the query comprehensively.
-4. Examine the available tools in the toolbox and determine which ones might relevant and useful for addressing the query. Make sure to consider the user metadata for each tool, including limitations and potential applications (if available).
+{tool_guidance}
 5. Provide a brief explanation for each skill and tool you've identified, describing how it would contribute to answering the query.
 
 Your response should include:
 1. A concise summary of the query's main points and objectives, as well as content in any accompanying inputs.
 2. A list of required skills, with a brief explanation for each.
-3. A list of relevant tools from the toolbox, with a brief explanation of how each tool would be utilized and its potential limitations.
+{output_guidance}
 4. Any additional considerations that might be important for addressing the query effectively.
 
 Please present your analysis in a clear, structured format.
                         """
         else: 
+            instruction_line = (
+                "2. List the necessary skills and capability requirements for the next step. Do not make a final tool choice; "
+                "focus on what kind of tool behavior is needed."
+                if self.tool_selection_mode == "embedding"
+                else "2. List the necessary skills"
+            )
             query_prompt = f"""
-Task: Analyze the given query to determine necessary skills and tools.
+Task: Analyze the given query to determine necessary skills.
 
 Inputs:
 - Query: {question}
@@ -105,13 +129,13 @@ Inputs:
 
 Instructions:
 1. Identify the main objectives in the query.
-2. List the necessary skills and tools.
-3. For each skill and tool, explain how it helps address the query.
+{instruction_line}
+3. For each skill, explain how it helps address the query.
 4. Note any additional considerations.
 
-Format your response with a summary of the query, lists of skills and tools with explanations, and a section for additional considerations.
+Format your response with a summary of the query, lists of skills with explanations, and a section for additional considerations.
 
-Be biref and precise with insight. 
+Be brief and precise with insight. 
 """
 
 
@@ -132,63 +156,114 @@ Be biref and precise with insight.
 
         return str(self.query_analysis).strip()
 
-    def extract_context_subgoal_and_tool(self, response: Any) -> Tuple[str, str, str]:
+    def _normalize_tool_name(self, tool_name: str) -> str:
+        def to_canonical(name: str) -> str:
+            parts = re.split("[ _]+", name)
+            return "_".join(part.lower() for part in parts)
 
-        def normalize_tool_name(tool_name: str) -> str:
-            """
-            Normalizes a tool name robustly using regular expressions.
-            It handles any combination of spaces and underscores as separators.
-            """
-            def to_canonical(name: str) -> str:
-                # Split the name by any sequence of one or more spaces or underscores
-                parts = re.split('[ _]+', name)
-                # Join the parts with a single underscore and convert to lowercase
-                return "_".join(part.lower() for part in parts)
+        normalized_input = to_canonical(tool_name)
 
-            normalized_input = to_canonical(tool_name)
-            
-            for tool in self.available_tools:
-                if to_canonical(tool) == normalized_input:
-                    return tool
-                    
-            return f"No matched tool given: {tool_name}"
+        for tool in self.available_tools:
+            if to_canonical(tool) == normalized_input:
+                return tool
 
+        return f"No matched tool given: {tool_name}"
+
+    @staticmethod
+    def _looks_like_json(text: str) -> bool:
+        stripped = text.lstrip()
+        return stripped.startswith("{") or stripped.startswith("[")
+
+    def _coerce_planned_response(self, response: Any) -> Any:
+        if isinstance(response, (PlannedStep, NextStep)):
+            return response
+
+        if isinstance(response, dict):
+            try:
+                if "tool_name" in response:
+                    return NextStep(**response)
+                return PlannedStep(**response)
+            except Exception:
+                return response
+
+        if isinstance(response, str) and self._looks_like_json(response):
+            try:
+                response_dict = json.loads(response)
+                if "tool_name" in response_dict:
+                    return NextStep(**response_dict)
+                return PlannedStep(**response_dict)
+            except Exception:
+                return response
+
+        return response
+
+    def extract_context_and_subgoal(self, response: Any) -> Tuple[str, str]:
         try:
-            if isinstance(response, str):
-                # Attempt to parse the response as JSON
-                try:
-                    response_dict = json.loads(response)
-                    response = NextStep(**response_dict)
-                except Exception as e:
-                    print(f"Failed to parse response as JSON: {str(e)}")
-            if isinstance(response, NextStep):
-                print("arielg 1")
+            response = self._coerce_planned_response(response)
+            if isinstance(response, (PlannedStep, NextStep)):
                 context = response.context.strip()
                 sub_goal = response.sub_goal.strip()
-                tool_name = response.tool_name.strip()
-            else:
-                print("arielg 2")
+                return context, sub_goal
+
+            if isinstance(response, dict):
+                context = response.get("context")
+                sub_goal = response.get("sub_goal")
+                return (
+                    context.strip() if isinstance(context, str) else None,
+                    sub_goal.strip() if isinstance(sub_goal, str) else None,
+                )
+
+            if isinstance(response, str):
                 text = response.replace("**", "")
-
-                # Pattern to match the exact format
-                pattern = r"Context:\s*(.*?)Sub-Goal:\s*(.*?)Tool Name:\s*(.*?)\s*(?:```)?\s*(?=\n\n|\Z)"
-
-                # Find all matches
+                pattern = r"Context:\s*(.*?)Sub-Goal:\s*(.*?)(?:Tool Name:|\Z)"
                 matches = re.findall(pattern, text, re.DOTALL)
+                if matches:
+                    context, sub_goal = matches[-1]
+                    return context.strip(), sub_goal.strip()
 
-                # Return the last match (most recent/relevant)
-                context, sub_goal, tool_name = matches[-1]
-                context = context.strip()
-                sub_goal = sub_goal.strip()
-            tool_name = normalize_tool_name(tool_name)
+            return None, None
+        except Exception as e:
+            print(f"Error extracting context and sub-goal: {str(e)}")
+            return None, None
+
+    def extract_context_subgoal_and_tool(self, response: Any) -> Tuple[str, str, str]:
+        try:
+            response = self._coerce_planned_response(response)
+            context, sub_goal = self.extract_context_and_subgoal(response)
+
+            if isinstance(response, NextStep):
+                tool_name = self._normalize_tool_name(response.tool_name.strip())
+                return context, sub_goal, tool_name
+
+            if isinstance(response, PlannedStep):
+                return context, sub_goal, None
+
+            if isinstance(response, dict):
+                tool_name = response.get("tool_name")
+                normalized_tool_name = (
+                    self._normalize_tool_name(tool_name.strip())
+                    if isinstance(tool_name, str) and tool_name.strip()
+                    else None
+                )
+                return context, sub_goal, normalized_tool_name
+
+            if isinstance(response, str):
+                text = response.replace("**", "")
+                tool_match = re.findall(
+                    r"Tool Name:\s*(.*?)\s*(?:```)?\s*(?=\n\n|\Z)",
+                    text,
+                    re.DOTALL,
+                )
+                tool_name = self._normalize_tool_name(tool_match[-1].strip()) if tool_match else None
+                return context, sub_goal, tool_name
+
+            return context, sub_goal, None
         except Exception as e:
             print(f"Error extracting context, sub-goal, and tool name: {str(e)}")
             return None, None, None
 
-        return context, sub_goal, tool_name
-
     def generate_next_step(self, question: str, image: str, query_analysis: str, memory: Memory, step_count: int, max_step_count: int, json_data: Any = None) -> Any:
-        if self.is_multimodal:
+        if self.is_multimodal and self.tool_selection_mode == "planner":
             prompt_generate_next_step = f"""
 Task: Determine the optimal next step to address the given query based on the provided analysis, available tools, and previous steps taken.
 
@@ -259,8 +334,50 @@ Tool Name: Object_Detector_Tool
 
 Remember: Your response MUST end with the Context, Sub-Goal, and Tool Name sections, with NO additional content afterwards.
                         """
-        else:
+        elif self.is_multimodal:
             prompt_generate_next_step = f"""
+Task: Determine the optimal next step to address the given query based on the provided analysis and previous steps taken.
+
+Tool selection will be handled separately by an embedding-based selector after you produce the plan for this step.
+
+Context:
+Query: {question}
+Image: {image}
+Query Analysis: {query_analysis}
+
+Available Tools:
+{self.available_tools}
+
+Tool Metadata:
+{self.toolbox_metadata}
+
+Previous Steps and Their Results:
+{memory.get_actions()}
+
+Current Step: {step_count} in {max_step_count} steps
+Remaining Steps: {max_step_count - step_count}
+
+Instructions:
+1. Analyze the query, image, prior reasoning, previous steps, and tool metadata.
+2. Decide the single most useful next objective that can be completed by exactly one available tool.
+3. Do NOT choose a tool and do NOT include a Tool Name section.
+4. Keep the sub-goal tool-agnostic: describe the required action or information, not the tool identity.
+5. Provide complete execution context, including relevant prior results, file paths, URLs, variable names, and values needed by the downstream tool.
+
+Response Format:
+1. Justification: Explain why this next step is the best use of the remaining budget.
+2. Context: Provide all prerequisite information needed by the downstream tool.
+3. Sub-Goal: State the exact objective for the downstream tool.
+
+Rules:
+- The sub-goal must be specific, achievable in one step, and directly tied to the query.
+- The sub-goal should be written so that a downstream embedding-based selector can match it to the best tool.
+- Do not include any Tool Name or final tool decision in the response.
+- The final response must end with the Context and Sub-Goal sections in that order. No additional text should follow.
+"""
+        else:
+            if self.tool_selection_mode == "planner":
+                prompt_generate_next_step = f"""
 Task: Determine the optimal next step to address the query using available tools and previous context.
 
 Context:
@@ -292,8 +409,41 @@ Rules:
 - The Context section must contain all information the tool needs; do not assume implicit knowledge.
 - The final response must end with the Context, Sub-Goal, and Tool Name sections in that order. No additional text should follow.
                     """
+            else:
+                prompt_generate_next_step = f"""
+Task: Determine the optimal next step to address the query using previous context.
+
+Tool selection will be handled separately by an embedding-based selector after you produce the plan for this step.
+
+Context:
+- **Query:** {question}
+- **Query Analysis:** {query_analysis}
+- **Available Tools:** {self.available_tools}
+- **Toolbox Metadata:** {self.toolbox_metadata}
+- **Previous Steps:** {memory.get_actions()}
+
+Instructions:
+1. Analyze the current objective, the history of executed steps, and the capabilities of the available tools.
+2. Decide on the single most valuable next objective that can be completed by exactly one available tool.
+3. Do NOT choose a tool and do NOT include a Tool Name section.
+4. Keep the sub-goal tool-agnostic: describe the required action or information rather than a tool identity.
+5. Consider tool limitations and remaining steps so the sub-goal is realistic for one execution step.
+6. Provide all relevant context, including data, file paths, URLs, prior results, and variable names needed by the downstream tool.
+
+Response Format:
+1. Justification: Explain why this next step best advances the solution.
+2. Context: Provide all prerequisite information for the downstream tool.
+3. Sub-Goal: State the exact objective for the downstream tool.
+
+Rules:
+- The sub-goal must be concrete, concise, and achievable by one available tool.
+- The sub-goal should be specific enough for a downstream embedding-based selector to match it to the best tool.
+- Do not include any Tool Name or final tool choice anywhere in the response.
+- The final response must end with the Context and Sub-Goal sections in that order. No additional text should follow.
+"""
             
-        next_step = self.llm_engine(prompt_generate_next_step, response_format=NextStep)
+        response_format = NextStep if self.tool_selection_mode == "planner" else PlannedStep
+        next_step = self.llm_engine(prompt_generate_next_step, response_format=response_format)
         # next_step = self.llm_engine_fixed(prompt_generate_next_step, response_format=NextStep)
         if json_data is not None:
             json_data[f"action_predictor_{step_count}_prompt"] = prompt_generate_next_step

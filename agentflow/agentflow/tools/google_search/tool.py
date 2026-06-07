@@ -18,33 +18,45 @@ import re
 TOOL_NAME = "Ground_Google_Search_Tool"
 
 LIMITATIONS = """
-1. This tool is only suitable for general information search.
-2. This tool contains less domain specific information.
-3. This tools is not suitable for searching and analyzing videos on YouTube or other video platforms.
+1. This tool is most suitable for general web information and for basic to intermediate questions in mathematics, science, and world knowledge.
+2. It may be less suitable when the task requires deep domain expertise, highly specialized technical knowledge, or advanced professional judgment.
+3. Search results may be incomplete, noisy, or vary in quality depending on the topic and available web sources.
+4. Retrieved information may need follow-up reasoning to apply a formula, fact, or concept to the exact problem at hand.
+5. This tool is not suitable for searching and analyzing videos on YouTube or other video platforms.
 """
 
 BEST_PRACTICES = """
-1. Choose this tool when you want to search general information about a topic.
-2. Choose this tool for question type of query, such as "What is the capital of France?" or "Who invented the telephone?".
-3. The tool will return a summarized information.
-4. This tool is more suitable for definition, world knowledge, and general information search.
+1. Choose this tool when the task needs external references, background knowledge, source verification, or up-to-date factual information from the web.
+2. Use this tool for basic or intermediate questions in mathematics, science, and general world knowledge when you need definitions, formulas, theorems, scientific facts, standard relationships, or reliable supporting explanations.
+3. Prefer this tool when a problem depends on recalling known formulas or concepts such as logarithm rules, algebraic identities, coordinate geometry relationships, slope formulas, geometric properties, physical laws, or standard constants.
+4. Rewrite a broad question into targeted search queries using key terms, formulas, named concepts, theorem names, scientific terms, or intermediate sub-questions for better results.
+5. The tool returns summarized information with citations that can support later reasoning, implementation, checking intermediate steps, or verifying a final answer.
+6. Use this tool before code execution when the main need is to retrieve a known fact, formula, or standard explanation rather than to implement logic directly.
 """
 
 class Google_Search_Tool(BaseTool):
     def __init__(self, model_string="gemini-3.1-flash-lite"):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="A web search tool powered by Google Search that provides real-time information from the internet with citation support.",
+            tool_description="A web search tool powered by Google Search that provides real-time information from the internet with citation support. It is especially useful for retrieving definitions, formulas, theorem statements, scientific facts, coordinate-geometry relationships, logarithm rules, and general background knowledge that can support reasoning and problem solving.",
             tool_version="1.0.0",
             input_types={
-                "query": "str - The search query to find information on the web.",
+                "query": "str - The search query to find relevant information on the web, such as a factual question, formula lookup, theorem or rule, scientific concept, named entity, geometry relation, algebra/log identity, or a targeted sub-question.",
                 "add_citations": "bool - Whether to add citations to the results. If True, the results will be formatted with citations. By default, it is True.",
             },
-            output_type="str - The search results of the query.",
+            output_type="str - A citation-grounded summary of relevant web results for the query, including definitions, formulas, standard relationships, explanations, and supporting facts that can help reasoning or verification.",
             demo_commands=[
                 {
                     "command": 'execution = tool.execute(query="What is the capital of France?")',
                     "description": "Search for general information about the capital of France with default citations enabled."
+                },
+                {
+                    "command": 'execution = tool.execute(query="What is the quadratic formula?", add_citations=True)',
+                    "description": "Search for a basic mathematics formula with citations enabled."
+                },
+                {
+                    "command": 'execution = tool.execute(query="What is the slope formula between two points?", add_citations=True)',
+                    "description": "Search for a standard coordinate geometry formula with citations enabled."
                 },
                 {
                     "command": 'execution = tool.execute(query="Who won the euro 2024?", add_citations=False)',

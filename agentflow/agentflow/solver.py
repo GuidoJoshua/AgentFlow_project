@@ -5,10 +5,11 @@ from typing import Optional
 
 from agentflow.models.initializer import Initializer
 from agentflow.models.planner import Planner
+from agentflow.models.tool_selector import ToolSelector
 from agentflow.models.verifier import Verifier
 from agentflow.models.memory import Memory
 from agentflow.models.executor import Executor
-from agentflow.models.utils import make_json_serializable_truncated
+from agentflow.models.utils import make_json_serializable, make_json_serializable_truncated
 
 class Solver:
     def __init__(
@@ -17,6 +18,7 @@ class Solver:
         verifier,
         memory,
         executor,
+        tool_selector=None,
         output_types: str = "base,final,direct",
         max_steps: int = 10,
         max_time: int = 300,
@@ -29,6 +31,7 @@ class Solver:
         self.verifier = verifier
         self.memory = memory
         self.executor = executor
+        self.tool_selector = tool_selector
         self.max_steps = max_steps
         self.max_time = max_time
         self.max_tokens = max_tokens
@@ -38,6 +41,43 @@ class Solver:
         self.temperature  = temperature
         assert all(output_type in ["base", "final", "direct"] for output_type in self.output_types), "Invalid output type. Supported types are 'base', 'final', 'direct'."
         self.verbose = verbose
+
+    def _resolve_next_action(
+        self,
+        question: str,
+        image_path: Optional[str],
+        query_analysis: str,
+        step_count: int,
+        json_data: dict,
+    ):
+        next_step = self.planner.generate_next_step(
+            question,
+            image_path,
+            query_analysis,
+            self.memory,
+            step_count,
+            self.max_steps,
+            json_data,
+        )
+
+        selection_trace = None
+        if self.tool_selector and self.planner.tool_selection_mode == "embedding":
+            context, sub_goal = self.planner.extract_context_and_subgoal(next_step)
+            selection = self.tool_selector.select_tool(
+                question=question,
+                query_analysis=query_analysis,
+                context=context,
+                sub_goal=sub_goal,
+                memory_actions=self.memory.get_actions(),
+            )
+            tool_name = selection.selected_tool
+            selection_trace = selection.to_dict()
+            json_data[f"tool_selector_{step_count}"] = make_json_serializable(selection_trace)
+        else:
+            context, sub_goal, tool_name = self.planner.extract_context_subgoal_and_tool(next_step)
+
+        return next_step, context, sub_goal, tool_name, selection_trace
+
     def solve(self, question: str, image_path: Optional[str] = None):
         """
         Solve a single problem from the benchmark dataset.
@@ -92,19 +132,21 @@ class Solver:
 
                 # [2] Generate next step
                 local_start_time = time.time()
-                next_step = self.planner.generate_next_step(
-                    question, 
-                    image_path, 
-                    query_analysis, 
-                    self.memory, 
-                    step_count, 
-                    self.max_steps,
-                    json_data
+                next_step, context, sub_goal, tool_name, selection_trace = self._resolve_next_action(
+                    question=question,
+                    image_path=image_path,
+                    query_analysis=query_analysis,
+                    step_count=step_count,
+                    json_data=json_data,
                 )
-                context, sub_goal, tool_name = self.planner.extract_context_subgoal_and_tool(next_step)
                 if self.verbose:
-                    print(f"\n==> 🎯 Step {step_count}: Action Prediction ({tool_name})\n")
-                    print(f"[Context]: {context}\n[Sub Goal]: {sub_goal}\n[Tool]: {tool_name}")
+                    print(f"\n==> 🎯 Step {step_count}: Step Planning\n")
+                    print(f"[Context]: {context}\n[Sub Goal]: {sub_goal}")
+                    if selection_trace is not None:
+                        print(f"\n==> 🧭 Step {step_count}: Tool Selection ({tool_name})\n")
+                        print(f"[Top Candidates]: {json.dumps(selection_trace['top_candidates'], indent=4)}")
+                    else:
+                        print(f"[Tool]: {tool_name}")
                     print(f"[Time]: {round(time.time() - local_start_time, 2)}s")
 
                 if tool_name is None or tool_name not in self.planner.available_tools:
@@ -199,6 +241,10 @@ def construct_solver(llm_engine_name : str = "gpt-4o",
                      enabled_tools : list[str] = ["all"],
                      tool_engine: list[str] = ["Default"],
                      model_engine: list[str] = ["trainable", "gpt-4o", "gpt-4o", "gpt-4o"],  # [planner_main, planner_fixed, verifier, executor]
+                     tool_selection_mode: str = "embedding",
+                     tool_selection_embedding_model: str = "gemini-embedding-001",
+                     tool_selection_output_dimensionality: Optional[int] = None,
+                     tool_selection_top_k: int = 3,
                      output_types : str = "final,direct",
                      max_steps : int = 10,
                      max_time : int = 300,
@@ -235,7 +281,8 @@ def construct_solver(llm_engine_name : str = "gpt-4o",
         available_tools=initializer.available_tools,
         verbose=verbose,
         base_url=base_url,
-        temperature=temperature
+        temperature=temperature,
+        tool_selection_mode=tool_selection_mode,
     )
 
     # Instantiate Verifier
@@ -251,6 +298,17 @@ def construct_solver(llm_engine_name : str = "gpt-4o",
 
     # Instantiate Memory
     memory = Memory()
+
+    tool_selector = None
+    if tool_selection_mode == "embedding":
+        tool_selector = ToolSelector(
+            toolbox_metadata=initializer.toolbox_metadata,
+            available_tools=initializer.available_tools,
+            embedding_model_name=tool_selection_embedding_model,
+            verbose=verbose,
+            output_dimensionality=tool_selection_output_dimensionality,
+            top_k=tool_selection_top_k,
+        )
 
     # Instantiate Executor with tool instances cache
     executor = Executor(
@@ -268,6 +326,7 @@ def construct_solver(llm_engine_name : str = "gpt-4o",
         verifier=verifier,
         memory=memory,
         executor=executor,
+        tool_selector=tool_selector,
         output_types=output_types,
         max_steps=max_steps,
         max_time=max_time,
@@ -292,6 +351,10 @@ def parse_arguments():
     parser.add_argument("--max_steps", type=int, default=10, help="Maximum number of steps to execute.")
     parser.add_argument("--max_time", type=int, default=300, help="Maximum time allowed in seconds.")
     parser.add_argument("--verbose", type=bool, default=True, help="Enable verbose output.")
+    parser.add_argument("--tool_selection_mode", default="embedding", help="Tool selection strategy: planner or embedding.")
+    parser.add_argument("--tool_selection_embedding_model", default="gemini-embedding-001", help="Embedding model used when tool_selection_mode=embedding.")
+    parser.add_argument("--tool_selection_output_dimensionality", type=int, default=0, help="Optional output dimensionality for the embedding model. Use 0 for the model default.")
+    parser.add_argument("--tool_selection_top_k", type=int, default=3, help="Number of ranked tool candidates to log.")
     return parser.parse_args()
     
 def main(args):
@@ -300,6 +363,10 @@ def main(args):
         llm_engine_name=args.llm_engine_name,
         enabled_tools=["Base_Generator_Tool","Python_Coder_Tool","Google_Search_Tool","Wikipedia_Search_Tool"],
         tool_engine=tool_engine,
+        tool_selection_mode=args.tool_selection_mode,
+        tool_selection_embedding_model=args.tool_selection_embedding_model,
+        tool_selection_output_dimensionality=args.tool_selection_output_dimensionality or None,
+        tool_selection_top_k=args.tool_selection_top_k,
         output_types=args.output_types,
         max_steps=args.max_steps,
         max_time=args.max_time,

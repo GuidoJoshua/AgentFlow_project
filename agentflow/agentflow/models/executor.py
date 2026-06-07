@@ -135,56 +135,62 @@ execution = tool.execute(query=["Methanol", "function of hyperbola", "Fermat's L
             # Remove leading/trailing whitespace and triple backticks if present
             return re.sub(r'^```python\s*', '', code).rstrip('```').strip()
 
+        def looks_like_json(text: str) -> bool:
+            stripped = text.lstrip()
+            return stripped.startswith("{") or stripped.startswith("[")
+
         analysis = "No analysis found."
         explanation = "No explanation found."
         command = "No command found."
 
-        if isinstance(response, str):
-            # Attempt to parse as JSON first
-            try:
-                response_dict = json.loads(response)
-                response_obj = ToolCommand(**response_dict)
-                analysis = response_obj.analysis.strip()
-                explanation = response_obj.explanation.strip()
-                command = response_obj.command.strip()
-            except Exception as e:
-                print(f"Failed to parse response as JSON: {str(e)}")
-                # Fall back to regex parsing on string
-                try:
-                    # Extract analysis
-                    analysis_pattern = r"Analysis:(.*?)Command Explanation"
-                    analysis_match = re.search(analysis_pattern, response, re.DOTALL | re.IGNORECASE)
-                    analysis = analysis_match.group(1).strip() if analysis_match else "No analysis found."
-
-                    # Extract explanation
-                    explanation_pattern = r"Command Explanation:(.*?)Generated Command"
-                    explanation_match = re.search(explanation_pattern, response, re.DOTALL | re.IGNORECASE)
-                    explanation = explanation_match.group(1).strip() if explanation_match else "No explanation found."
-
-                    # Extract command using "Generated Command:" prefix
-                    command_pattern = r"Generated Command:.*?```python\n(.*?)```"
-                    command_match = re.search(command_pattern, response, re.DOTALL | re.IGNORECASE)
-                    if command_match:
-                        command = command_match.group(1).strip()
-                    else:
-                        # Fallback: Extract ANY ```python ... ``` block (even without prefix)
-                        loose_command_pattern = r"```python\s*\n(.*?)```"
-                        loose_match = re.findall(loose_command_pattern, response, re.DOTALL | re.IGNORECASE)
-                        if loose_match:
-                            # Take the last or most complete one? Or first meaningful?
-                            # Here we take the longest one as heuristic
-                            command = max(loose_match, key=lambda x: len(x.strip())).strip()
-                        else:
-                            command = "No command found."
-                except Exception as e:
-                    print(f"Error during regex parsing: {str(e)}")
-                    analysis = "Parsing error."
-                    explanation = "Parsing error."
-                    command = "No command found."
-        elif isinstance(response, ToolCommand):
+        if isinstance(response, ToolCommand):
             analysis = response.analysis.strip()
             explanation = response.explanation.strip()
             command = response.command.strip()
+        elif isinstance(response, dict):
+            try:
+                response_obj = ToolCommand(**response)
+                analysis = response_obj.analysis.strip()
+                explanation = response_obj.explanation.strip()
+                command = response_obj.command.strip()
+            except Exception:
+                analysis = str(response.get("analysis", response.get("error", analysis)))
+                explanation = str(response.get("explanation", response.get("message", explanation)))
+                command = str(response.get("command", command))
+        elif isinstance(response, str):
+            try:
+                analysis_pattern = r"Analysis:(.*?)Command Explanation"
+                analysis_match = re.search(analysis_pattern, response, re.DOTALL | re.IGNORECASE)
+                analysis = analysis_match.group(1).strip() if analysis_match else "No analysis found."
+
+                explanation_pattern = r"Command Explanation:(.*?)Generated Command"
+                explanation_match = re.search(explanation_pattern, response, re.DOTALL | re.IGNORECASE)
+                explanation = explanation_match.group(1).strip() if explanation_match else "No explanation found."
+
+                command_pattern = r"Generated Command:.*?```python\n(.*?)```"
+                command_match = re.search(command_pattern, response, re.DOTALL | re.IGNORECASE)
+                if command_match:
+                    command = command_match.group(1).strip()
+                else:
+                    loose_command_pattern = r"```python\s*\n(.*?)```"
+                    loose_match = re.findall(loose_command_pattern, response, re.DOTALL | re.IGNORECASE)
+                    if loose_match:
+                        command = max(loose_match, key=lambda x: len(x.strip())).strip()
+            except Exception as e:
+                print(f"Error during plain-text parsing: {str(e)}")
+                analysis = "Parsing error."
+                explanation = "Parsing error."
+                command = "No command found."
+
+            if command == "No command found." and looks_like_json(response):
+                try:
+                    response_dict = json.loads(response)
+                    response_obj = ToolCommand(**response_dict)
+                    analysis = response_obj.analysis.strip()
+                    explanation = response_obj.explanation.strip()
+                    command = response_obj.command.strip()
+                except Exception:
+                    pass
         else:
             command = "Invalid response type."
 

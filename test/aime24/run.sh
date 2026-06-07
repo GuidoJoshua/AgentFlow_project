@@ -10,14 +10,14 @@ CODER_PORT=8002
 CODER_BASE_URL="http://localhost:${CODER_PORT}/v1"
 
 MODELS=(
-    "${FIXED_PORT}:vllm-Qwen/Qwen2.5-7B-Instruct,Qwen2.5-7B-Instruct,\
+    "${FIXED_PORT}:vllm-Qwen/Qwen2.5-7B-Instruct,Qwen2.5-7B-Instruct-emb,\
     Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
     gpt-4o-mini|vllm-Qwen/Qwen2.5-Coder-7B-Instruct@${CODER_BASE_URL}|Default|Default,\
     trainable|vllm-Qwen/Qwen2.5-7B-Instruct|fixed|fixed"
-    # "8000:vllm-AgentFlow/agentflow-planner-7b,AgentFlow-7B,\
-    # Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
-    # gpt-4o-mini|vllm-Qwen/Qwen2.5-Coder-7B-Instruct@${CODER_BASE_URL}|Default|Default,\
-    # trainable|vllm-Qwen/Qwen2.5-7B-Instruct|fixed|fixed"
+    #"8000:vllm-AgentFlow/agentflow-planner-7b,AgentFlow-7B-embedding,\
+    #Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
+    #gpt-4o-mini|vllm-Qwen/Qwen2.5-Coder-7B-Instruct@${CODER_BASE_URL}|Default|Default,\
+    #trainable|vllm-Qwen/Qwen2.5-7B-Instruct|fixed|fixed"
 #     ":dashscope-qwen2.5-7b-instruct,Qwen2.5-7b-naive,\
 # Base_Generator_Tool|Python_Coder_Tool|Google_Search_Tool|Wikipedia_Search_Tool,\
 # dashscope-qwen2.5-7b-instruct|dashscope-qwen2.5-7b-instruct|Default|Default,\
