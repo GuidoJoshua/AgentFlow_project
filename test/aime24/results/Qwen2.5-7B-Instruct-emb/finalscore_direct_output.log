@@ -1,0 +1,34 @@
+##################################################
+Task: aime24
+📊 Using SINGLE-STAGE scoring for AIME24
+Arguments: Namespace(task_name='aime24', data_file='aime24/data/data.json', result_dir='aime24/results/Qwen2.5-7B-Instruct-emb', exp_name=None, output_file='finalresults_direct_output.json', log_dir=None, response_type='direct_output', max_workers=16)
+# task_name: aime24
+# data_file: aime24/data/data.json
+# result_dir: aime24/results/Qwen2.5-7B-Instruct-emb
+# exp_name: None
+# output_file: finalresults_direct_output.json
+# log_dir: None
+# response_type: direct_output
+# max_workers: 16
+##################################################
+
+Local OpenAI engine gpt-4o initialized.
+
+
+Accuracy: 26.67% (8/30)
+
+Results saved to aime24/results/Qwen2.5-7B-Instruct-emb/finalresults_direct_output.json
+Wrong PIDs: ['0', '1', '2', '3', '5', '7', '10', '11', '12', '13', '14', '15', '16', '17', '19', '20', '21', '23', '24', '26', '27', '28']
+Wrong Indices: [0, 1, 2, 3, 5, 7, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 23, 24, 26, 27, 28]
+Log dir: aime24/logs/Qwen2.5-7B-Instruct-emb
+
+Step stats:
+- average_time: 	103.5
+- average_step: 	2.73
+- one_step_rate: 	0.5
+
+Tool usage:
+- Python_Code_Generator_Tool: 	0.549
+- Ground_Google_Search_Tool: 	0.341
+- Generalist_Solution_Generator_Tool: 	0.11
+Scores saved to aime24/results/Qwen2.5-7B-Instruct-emb/final_scores_direct_output.json

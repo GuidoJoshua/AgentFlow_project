@@ -1,0 +1,39 @@
+##################################################
+Task: aime24
+📊 Using SINGLE-STAGE scoring for AIME24
+Arguments: Namespace(task_name='aime24', data_file='aime24/data/data.json', result_dir='aime24/results/AgentFlow-7B', exp_name=None, output_file='finalresults_direct_output.json', log_dir=None, response_type='direct_output', max_workers=16)
+# task_name: aime24
+# data_file: aime24/data/data.json
+# result_dir: aime24/results/AgentFlow-7B
+# exp_name: None
+# output_file: finalresults_direct_output.json
+# log_dir: None
+# response_type: direct_output
+# max_workers: 16
+##################################################
+
+Local OpenAI engine gpt-4o initialized.
+
+
+Accuracy: 33.33% (10/30)
+
+Results saved to aime24/results/AgentFlow-7B/finalresults_direct_output.json
+Wrong PIDs: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '11', '13', '15', '16', '17', '19', '22', '24', '26', '27']
+Wrong Indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 16, 17, 19, 22, 24, 26, 27]
+Log dir: aime24/logs/AgentFlow-7B
+
+Step stats:
+- average_time: 	40.1
+- average_step: 	1.67
+- one_step_rate: 	0.6
+
+Tool usage:
+- Ground_Google_Search_Tool: 	0.42
+- Python_Code_Generator_Tool: 	0.24
+- Generalist_Solution_Generator_Tool: 	0.18
+- None: 	0.08
+- Wikipedia_RAG_Search_Tool: 	0.04
+- No matched tool given: Wikipedia_RAG/Search Tool: 	0.02
+- No matched tool given: ```plaintext
+Ground_Google_Search_Tool: 	0.02
+Scores saved to aime24/results/AgentFlow-7B/final_scores_direct_output.json

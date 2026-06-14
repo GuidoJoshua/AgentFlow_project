@@ -1,0 +1,35 @@
+##################################################
+Task: bamboogle
+📊 Using SINGLE-STAGE scoring for BAMBOOGLE
+Arguments: Namespace(task_name='bamboogle', data_file='bamboogle/data/data.json', result_dir='bamboogle/results/Qwen2.5-7B-Instruct-emb', exp_name=None, output_file='finalresults_direct_output.json', log_dir=None, response_type='direct_output', max_workers=16)
+# task_name: bamboogle
+# data_file: bamboogle/data/data.json
+# result_dir: bamboogle/results/Qwen2.5-7B-Instruct-emb
+# exp_name: None
+# output_file: finalresults_direct_output.json
+# log_dir: None
+# response_type: direct_output
+# max_workers: 16
+##################################################
+
+Local OpenAI engine gpt-4o initialized.
+
+
+Accuracy: 62.0% (31/50)
+
+Results saved to bamboogle/results/Qwen2.5-7B-Instruct-emb/finalresults_direct_output.json
+Wrong PIDs: ['2', '5', '6', '7', '9', '13', '20', '22', '24', '27', '28', '34', '38', '40', '42', '44', '45', '46', '47']
+Wrong Indices: [2, 5, 6, 7, 9, 13, 20, 22, 24, 27, 28, 34, 38, 40, 42, 44, 45, 46, 47]
+Log dir: bamboogle/logs/Qwen2.5-7B-Instruct-emb
+
+Step stats:
+- average_time: 	66.5
+- average_step: 	3.28
+- one_step_rate: 	0.4
+
+Tool usage:
+- Wikipedia_RAG_Search_Tool: 	0.713
+- Ground_Google_Search_Tool: 	0.256
+- Web_RAG_Search_Tool: 	0.024
+- Generalist_Solution_Generator_Tool: 	0.006
+Scores saved to bamboogle/results/Qwen2.5-7B-Instruct-emb/final_scores_direct_output.json
