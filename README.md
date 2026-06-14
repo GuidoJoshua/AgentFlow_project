@@ -9,11 +9,11 @@ AgentFlow is a **trainable, tool-integrated agentic framework** designed to over
 
 Unlike prevailing approaches such as [Search-R1](https://github.com/PeterGriffinJin/Search-R1) which train a **single LLM** to interleave reasoning steps with tool calls, **AgentFlow** introduces a **modular agentic system** with four specialized modules: 🧭 **Planner**, 🛠 **Executor**, ✅ **Verifier**, and ✍️ **Generator**.
 
-framework_overall
+![framework_overall](assets/img/framework.png)
 
 For effective planning and tool use, the framework directly **optimizes planner agent within the system** in an **online fashion** using **Flow-based Group Refined Policy Optimization (Flow-GRPO)**, achieving superior performance across diverse domains with improved tool-calling reliability and long-horizon reasoning capabilities.
 
-flow_grpo
+![flow_grpo](assets/img/flow_grpo.png)
 
 ---
 
@@ -128,7 +128,7 @@ Although it does not fully match GRPO, it recovers a large portion of the gap be
 
 ### Tool-Use Behavior Analysis
 
-tool_call_ratio_aime24
+![Tooluse](assets/img/Tooluse.png)
 
 The non-RL baseline heavily relies on the **Python Code Generator**, suggesting a strong single-tool bias.  
 With embedding-based selection, the tool-use distribution becomes more balanced.  
